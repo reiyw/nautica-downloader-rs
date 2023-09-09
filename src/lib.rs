@@ -18,6 +18,9 @@ use chrono::NaiveDateTime;
 use chrono::TimeZone;
 use chrono::Utc;
 use encoding_rs::SHIFT_JIS;
+use pickledb::PickleDb;
+use pickledb::PickleDbDumpPolicy;
+use pickledb::SerializationMethod;
 use serde::de;
 use serde::Deserialize;
 use serde::Deserializer;
@@ -58,7 +61,6 @@ struct SongsResp {
     links: Links,
 }
 
-#[derive(Debug)]
 pub struct Downloader {
     /// Destination directory to save songs.
     dest: PathBuf,
@@ -75,6 +77,10 @@ impl Downloader {
     }
 
     pub fn download_all(&self) -> anyhow::Result<()> {
+        let mut db = PickleDb::load_json(self.dest.join("meta.json"), PickleDbDumpPolicy::AutoDump)
+            .unwrap_or_else(|_| {
+                PickleDb::new_json(self.dest.join("meta.json"), PickleDbDumpPolicy::AutoDump)
+            });
         let mut next_link = format!("{}/app/songs?sort=uploaded", self.base_url);
 
         'outer: loop {
@@ -84,7 +90,7 @@ impl Downloader {
             for song in songs_resp.data {
                 let song_dest = self.dest.join(&song.id);
 
-                if song_dest.exists() {
+                if db.get::<DateTime<Utc>>(&song.id).is_some() {
                     info!(
                         title = song.title,
                         artist = song.artist,
@@ -95,7 +101,9 @@ impl Downloader {
 
                 info!(title = song.title, artist = song.artist, "Downloading");
 
-                self.download(&song.id)?;
+                if self.download(&song.id).is_ok() {
+                    db.set(&song.id, &Utc::now())?;
+                }
             }
 
             if let Some(next) = songs_resp.links.next {
@@ -113,7 +121,9 @@ impl Downloader {
             .get(format!("{}/songs/{}/download", self.base_url, song_id))
             .send()?;
         let dest = self.dest.join(song_id);
-        fs::create_dir(&dest)?;
+        if !dest.exists() {
+            fs::create_dir(&dest)?;
+        }
 
         let mut archive = ZipArchive::new(Cursor::new(resp.bytes()?))?;
 
