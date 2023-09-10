@@ -103,6 +103,8 @@ impl Downloader {
 
                 if self.download(&song.id).is_ok() {
                     db.set(&song.id, &Utc::now())?;
+                } else {
+                    warn!("Failed to download");
                 }
             }
 
