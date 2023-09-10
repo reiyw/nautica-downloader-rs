@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.75"
 attohttpc = { version = "0.26.1", features = ["json", "tls-rustls-native-roots"] }
+chardetng = "0.1.17"
 chrono = { version = "0.4.30", features = ["serde"] }
 clap = { version = "4.4.2", features = ["derive", "string"] }
 encoding_rs = "0.8.33"

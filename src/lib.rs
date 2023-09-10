@@ -13,11 +13,11 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use anyhow::bail;
 use attohttpc::Session;
+use chardetng::EncodingDetector;
 use chrono::DateTime;
 use chrono::NaiveDateTime;
 use chrono::TimeZone;
 use chrono::Utc;
-use encoding_rs::SHIFT_JIS;
 use pickledb::PickleDb;
 use pickledb::PickleDbDumpPolicy;
 use pickledb::SerializationMethod;
@@ -137,7 +137,14 @@ impl Downloader {
             };
 
             let filepath = {
-                let (cow, _, had_errors) = SHIFT_JIS.decode(file.name_raw());
+                // FIXME: Changing the file name encoding will likely break references
+                // from the ksh file. Need to modify the contents of the ksh file
+                // accordingly.
+                let mut det = EncodingDetector::new();
+                det.feed(file.name_raw(), true);
+                let encoding = det.guess(None, true);
+
+                let (cow, _, had_errors) = encoding.decode(file.name_raw());
                 let enclosed_name = if had_errors {
                     file.enclosed_name()
                 } else {
@@ -233,39 +240,43 @@ mod test {
         );
     }
 
-    // #[test]
-    // fn download() {
-    //     let server = MockServer::start();
-    //     let m = server.mock(|when, then| {
-    //         when.path("/songs/5441d590-4d43-11ee-a602-d95b1bfc2e6d/download");
-    //         then.header("content-type", "application/x-zip")
-    //             .status(200)
-    //             .body(include_bytes!(
-    //                 "../tests/fixtures/5441d590-4d43-11ee-a602-d95b1bfc2e6d.zip"
-    //             ));
-    //     });
+    #[test]
+    fn download_ascii_encoding_zip() {
+        let server = MockServer::start();
+        let m = server.mock(|when, then| {
+            when.path("/songs/5441d590-4d43-11ee-a602-d95b1bfc2e6d/download");
+            then.header("content-type", "application/x-zip")
+                .status(200)
+                .body(include_bytes!(
+                    "../tests/fixtures/5441d590-4d43-11ee-a602-d95b1bfc2e6d.zip"
+                ));
+        });
 
-    //     let dest = tempdir().unwrap();
+        let dest = tempdir().unwrap();
 
-    //     let downloader = Downloader::builder()
-    //         .dest(dest.path())
-    //         .base_url(server.base_url())
-    //         .build();
+        let downloader = Downloader::builder()
+            .dest(dest.path())
+            .base_url(server.base_url())
+            .build();
 
-    //     let song = Song {
-    //         id: "5441d590-4d43-11ee-a602-d95b1bfc2e6d".to_string(),
-    //         user_id: "afc379f0-79ee-11eb-a306-21913834edef".to_string(),
-    //         title: "Outbreak".to_string(),
-    //         artist: "RG+Ice".to_string(),
-    //         uploaded_at: Utc.with_ymd_and_hms(2023, 9, 7, 5, 56, 46).unwrap(),
-    //     };
-    //     downloader.download(&song);
+        downloader
+            .download("5441d590-4d43-11ee-a602-d95b1bfc2e6d")
+            .unwrap();
 
-    //     m.assert();
-    // }
+        m.assert();
+
+        let song_dest = dest.path().join("5441d590-4d43-11ee-a602-d95b1bfc2e6d");
+        assert_eq!(song_dest.read_dir().unwrap().collect::<Vec<_>>().len(), 6);
+        assert!(song_dest.join("Advanced.ksh").exists());
+        assert!(song_dest.join("Exhaust.ksh").exists());
+        assert!(song_dest.join("Novice.ksh").exists());
+        assert!(song_dest.join("Outbreak-jacket.png").exists());
+        assert!(song_dest.join("Outbreak.ksh").exists());
+        assert!(song_dest.join("Outbreak.ogg").exists());
+    }
 
     #[test]
-    fn download() {
+    fn download_shift_jis_encoding_zip() {
         let server = MockServer::start();
         let m = server.mock(|when, then| {
             when.path("/songs/89b54d80-4e6d-11ee-83d4-2ffdf82667a6/download");
@@ -283,13 +294,6 @@ mod test {
             .base_url(server.base_url())
             .build();
 
-        // let song = Song {
-        //     id: "89b54d80-4e6d-11ee-83d4-2ffdf82667a6".to_string(),
-        //     user_id: "87cd71e0-d13e-11eb-ac5e-f190cbe4b837".to_string(),
-        //     title: "チューリングラブ feat.Sou".to_string(),
-        //     artist: "ナナヲアカリ".to_string(),
-        //     uploaded_at: Utc.with_ymd_and_hms(2023, 9, 8, 17, 31, 26).unwrap(),
-        // };
         downloader
             .download("89b54d80-4e6d-11ee-83d4-2ffdf82667a6")
             .unwrap();
@@ -307,5 +311,39 @@ mod test {
         assert!(song_dest.join("チューリングラブ feat.Sou.ksh").exists());
         assert!(song_dest.join("チューリングラブ feat.Sou.ogg").exists());
         assert!(song_dest.join("チューリングラブ feat.Sou.png").exists());
+    }
+
+    #[test]
+    fn download_unknown_encoding_zip() {
+        let server = MockServer::start();
+        let m = server.mock(|when, then| {
+            when.path("/songs/9e523640-4fb1-11ee-a90f-e9c914456566/download");
+            then.header("content-type", "application/x-zip")
+                .status(200)
+                .body(include_bytes!(
+                    "../tests/fixtures/9e523640-4fb1-11ee-a90f-e9c914456566.zip"
+                ));
+        });
+
+        let dest = tempdir().unwrap();
+
+        let downloader = Downloader::builder()
+            .dest(dest.path())
+            .base_url(server.base_url())
+            .build();
+
+        downloader
+            .download("9e523640-4fb1-11ee-a90f-e9c914456566")
+            .unwrap();
+
+        m.assert();
+
+        let song_dest = dest.path().join("9e523640-4fb1-11ee-a90f-e9c914456566");
+        assert_eq!(song_dest.read_dir().unwrap().collect::<Vec<_>>().len(), 3);
+        assert!(song_dest.join("audio.ogg").exists());
+        assert!(song_dest.join("jacket.png").exists());
+
+        // chardetng guessed Big5 but not sure.
+        assert!(song_dest.join("哈姘屋怨姥恍鏺泆絯.ksh").exists());
     }
 }
