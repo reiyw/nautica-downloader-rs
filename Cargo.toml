@@ -21,3 +21,11 @@ zip = "0.6.6"
 httpmock = "0.6.8"
 serde_json = "1.0.105"
 tempfile = "3.8.0"
+
+[package.metadata.cross.build.env]
+# This avoids cross picking up custom linker from ~/.cargo/config.toml
+# See: https://github.com/cross-rs/cross/issues/621
+passthrough = [
+    "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc",
+    "RUSTFLAGS",
+]
